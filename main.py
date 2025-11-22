@@ -129,29 +129,13 @@ POPULAR_SEARCHES = [
 ]
 
 # ==================== IMPORT TELEGRAM & YT-DLP ====================
-try:
-    from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-    from telegram.ext import (
-        Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, 
-        ContextTypes
-    )
-    import yt_dlp
-    print("✅ Все зависимости загружены")
-except ImportError as exc:
-    print(f"❌ Ошибка импорта: {exc}")
-    print("📦 Устанавливаем зависимости...")
-    os.system("pip install -r requirements.txt")
-    try:
-        from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-        from telegram.ext import (
-            Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, 
-            ContextTypes
-        )
-        import yt_dlp
-        print("✅ Зависимости успешно установлены")
-    except ImportError as exc2:
-        print(f"❌ Ошибка импорта после установки: {exc2}")
-        sys.exit(1)
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, 
+    ContextTypes
+)
+import yt_dlp
+print("✅ Все зависимости загружены")
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
