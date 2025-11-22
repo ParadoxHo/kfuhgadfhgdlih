@@ -460,55 +460,64 @@ class StableMusicBot:
             return await self.download_ultra_fast(update, context, track)
 
     async def download_ultra_fast(self, update: Update, context: ContextTypes.DEFAULT_TYPE, track: dict) -> bool:
-        """Ультра-быстрый метод скачивания (минимальные проверки)"""
-        url = track.get('webpage_url') or track.get('url')
-        if not url:
+    """Упрощенный метод скачивания"""
+    url = track.get('webpage_url') or track.get('url')
+    if not url:
+        return False
+
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'outtmpl': os.path.join(tempfile.gettempdir(), '%(id)s.%(ext)s'),
+        'quiet': True,
+        'no_warnings': True,
+        'extractaudio': True,
+        'audioformat': 'mp3',
+        'noplaylist': True,
+        'noprogress': True,
+        'retries': 2,
+        'socket_timeout': 30,
+        'extract_flat': False,
+    }
+
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ydl_opts['outtmpl'] = os.path.join(tmpdir, 'track.%(ext)s')
+            
+            def download():
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    return ydl.extract_info(url, download=True)
+
+            loop = asyncio.get_event_loop()
+            info = await loop.run_in_executor(None, download)
+
+            for fname in os.listdir(tmpdir):
+                fpath = os.path.join(tmpdir, fname)
+                if os.path.isfile(fpath) and os.path.getsize(fpath) > 0:
+                    file_size_mb = os.path.getsize(fpath) / (1024 * 1024)
+                    
+                    # Проверяем размер файла
+                    if file_size_mb > MAX_FILE_SIZE_MB:
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=f'❌ Файл слишком большой ({file_size_mb:.1f} MB)'
+                        )
+                        return False
+
+                    with open(fpath, 'rb') as f:
+                        await context.bot.send_audio(
+                            chat_id=update.effective_chat.id,
+                            audio=f,
+                            title=(track.get('title') or 'Неизвестный трек')[:64],
+                            performer=(track.get('artist') or 'Неизвестный исполнитель')[:64],
+                            caption=f"🎵 <b>{track.get('title', 'Неизвестный трек')}</b>\n🎤 {track.get('artist', 'Неизвестный исполнитель')}",
+                            parse_mode='HTML',
+                        )
+                    return True
             return False
 
-        ydl_opts = {
-            'format': 'bestaudio[ext=mp3][filesize<50M]/bestaudio/best',
-            'outtmpl': os.path.join(tempfile.gettempdir(), '%(id)s.%(ext)s'),
-            'quiet': True,
-            'no_warnings': True,
-            'extractaudio': True,
-            'audioformat': 'mp3',
-            'noplaylist': True,
-            'nooverwrites': True,
-            'nopart': True,
-            'retries': 2,
-        }
-
-        try:
-            with tempfile.TemporaryDirectory() as tmpdir:
-                ydl_opts['outtmpl'] = os.path.join(tmpdir, 'track.%(ext)s')
-
-                def download():
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        return ydl.extract_info(url, download=True)
-
-                loop = asyncio.get_event_loop()
-                info = await loop.run_in_executor(None, download)
-
-                for fname in os.listdir(tmpdir):
-                    fpath = os.path.join(tmpdir, fname)
-                    if os.path.isfile(fpath) and os.path.getsize(fpath) > 0:
-                        file_size_mb = os.path.getsize(fpath) / (1024 * 1024)
-
-                        with open(fpath, 'rb') as f:
-                            await context.bot.send_audio(
-                                chat_id=update.effective_chat.id,
-                                audio=f,
-                                title=(track.get('title') or 'Неизвестный трек')[:64],
-                                performer=(track.get('artist') or 'Неизвестный исполнитель')[:64],
-                                caption=f"🎵 <b>{track.get('title', 'Неизвестный трек')}</b>\n🎤 {track.get('artist', 'Неизвестный исполнитель')}\n⏱️ {self.format_duration(track.get('duration'))}\n💾 {file_size_mb:.1f} MB",
-                                parse_mode='HTML',
-                            )
-                        return True
-                return False
-
-        except Exception as e:
-            logger.exception(f'Ошибка ультра-быстрого скачивания: {e}')
-            return False
+    except Exception as e:
+        logger.error(f'Ошибка скачивания: {e}')
+        return False
 
     async def download_and_send_track(self, update: Update, context: ContextTypes.DEFAULT_TYPE, track: dict) -> bool:
         """Основной метод скачивания - используем быструю версию"""
@@ -1723,3 +1732,4 @@ if __name__ == '__main__':
     bot = StableMusicBot()
 
     bot.run()
+
