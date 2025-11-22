@@ -459,7 +459,8 @@ class StableMusicBot:
             logger.exception(f'Ошибка скачивания трека: {e}')
             return await self.download_ultra_fast(update, context, track)
 
-    async def download_ultra_fast(self, update: Update, context: ContextTypes.DEFAULT_TYPE, track: dict) -> bool:
+    async def download_ultra_fast(self, update: Update, context: ContextTypes.DEFAULT_TYPE, track: dict)
+    -> bool:
     """Упрощенный метод скачивания"""
     url = track.get('webpage_url') or track.get('url')
     if not url:
@@ -1732,4 +1733,5 @@ if __name__ == '__main__':
     bot = StableMusicBot()
 
     bot.run()
+
 
