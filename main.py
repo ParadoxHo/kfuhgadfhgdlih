@@ -3,11 +3,9 @@ import os
 import sys
 import json
 import logging
-import tempfile
 import re
 import random
 import asyncio
-from datetime import datetime, timedelta
 from pathlib import Path
 
 # ==================== CONFIG ====================
@@ -34,11 +32,6 @@ except ImportError as e:
     print(f"❌ Ошибка импорта: {e}")
     sys.exit(1)
 
-# Настройки
-RESULTS_PER_PAGE = 8
-DATA_FILE = Path('user_data.json')
-CHARTS_FILE = Path('charts_cache.json')
-
 # Логирование
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -49,26 +42,7 @@ logger = logging.getLogger(__name__)
 # Хранилище данных
 user_data = {}
 
-def load_data():
-    global user_data
-    try:
-        if DATA_FILE.exists():
-            with open(DATA_FILE, 'r', encoding='utf-8') as f:
-                user_data = json.load(f)
-    except Exception as e:
-        logger.warning(f"Ошибка загрузки данных: {e}")
-
-def save_data():
-    try:
-        with open(DATA_FILE, 'w', encoding='utf-8') as f:
-            json.dump(user_data, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        logger.error(f"Ошибка сохранения: {e}")
-
-load_data()
-
-# Основной класс бота
-class StableMusicBot:
+class MusicBot:
     def __init__(self):
         logger.info('✅ Бот инициализирован')
 
@@ -77,7 +51,6 @@ class StableMusicBot:
             user_data[str(user_id)] = {
                 'search_results': [],
                 'search_query': '',
-                'download_history': [],
             }
 
     @staticmethod
@@ -102,7 +75,7 @@ class StableMusicBot:
         results = []
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(f"scsearch10:{query}", download=False)
+                info = ydl.extract_info(f"scsearch5:{query}", download=False)
                 
                 entries = info.get('entries', [])
                 if not entries:
@@ -131,81 +104,89 @@ class StableMusicBot:
         return results
 
     async def download_track(self, update: Update, context: ContextTypes.DEFAULT_TYPE, track: dict) -> bool:
-        """Упрощенное скачивание трека"""
+        """Скачивание трека - РАБОЧАЯ ВЕРСИЯ"""
         try:
             url = track.get('webpage_url')
             if not url:
                 return False
 
             # Уведомление о начале скачивания
-            status_msg = None
             if update.callback_query:
                 await update.callback_query.edit_message_text(f"⏬ Скачиваю: {track.get('title', 'Трек')}")
             else:
-                status_msg = await update.message.reply_text(f"⏬ Скачиваю: {track.get('title', 'Трек')}")
+                await update.message.reply_text(f"⏬ Скачиваю: {track.get('title', 'Трек')}")
 
-            # ПРОСТОЙ МЕТОД СКАЧИВАНИЯ
+            # ПРОСТОЕ И РАБОЧЕЕ СКАЧИВАНИЕ
             ydl_opts = {
                 'format': 'bestaudio/best',
-                'outtmpl': 'temp_audio.%(ext)s',
-                'quiet': True,
-                'no_warnings': True,
+                'outtmpl': 'download.%(ext)s',
+                'quiet': False,  # Включаем логи для дебага
+                'no_warnings': False,
                 'extractaudio': True,
                 'audioformat': 'mp3',
                 'noplaylist': True,
             }
 
-            success = False
+            downloaded = False
+            filename = None
+            
             try:
-                # Скачиваем напрямую
+                logger.info(f"Начинаю скачивание: {url}")
+                
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(url, download=True)
-                    temp_files = [f for f in os.listdir('.') if f.startswith('temp_audio')]
+                    filename = ydl.prepare_filename(info)
+                    logger.info(f"Файл скачан: {filename}")
                     
-                    for temp_file in temp_files:
-                        if os.path.exists(temp_file) and os.path.getsize(temp_file) > 0:
+                    # Проверяем что файл существует
+                    if os.path.exists(filename):
+                        file_size = os.path.getsize(filename)
+                        logger.info(f"Размер файла: {file_size} bytes")
+                        
+                        if file_size > 0:
                             # Отправляем файл
-                            with open(temp_file, 'rb') as f:
+                            with open(filename, 'rb') as audio_file:
                                 await context.bot.send_audio(
                                     chat_id=update.effective_chat.id,
-                                    audio=f,
+                                    audio=audio_file,
                                     title=track.get('title', 'Неизвестный трек')[:64],
                                     performer=track.get('artist', 'Неизвестный исполнитель')[:64],
                                     caption=f"🎵 <b>{track.get('title', 'Неизвестный трек')}</b>\n🎤 {track.get('artist', 'Неизвестный исполнитель')}",
                                     parse_mode='HTML',
                                 )
-                            success = True
-                            # Удаляем временный файл
-                            os.remove(temp_file)
-                            break
-                            
+                            downloaded = True
+                            logger.info("✅ Файл успешно отправлен")
+                        else:
+                            logger.error("❌ Файл пустой")
+                    else:
+                        logger.error("❌ Файл не найден")
+                        
             except Exception as download_error:
-                logger.error(f"Ошибка скачивания: {download_error}")
-                success = False
+                logger.error(f"Ошибка при скачивании: {download_error}")
+                downloaded = False
 
-            # Если скачивание не удалось, отправляем ссылку
-            if not success:
+            # Очистка временного файла
+            if filename and os.path.exists(filename):
+                try:
+                    os.remove(filename)
+                    logger.info("🗑️ Временный файл удален")
+                except:
+                    pass
+
+            if downloaded:
+                return True
+            else:
+                # Запасной вариант - отправляем ссылку
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,
-                    text=f"🎧 <b>Слушайте онлайн:</b>\n{url}\n\n<i>Скачивание временно недоступно</i>",
+                    text=f"🎧 <b>Слушайте онлайн:</b>\n{url}",
                     parse_mode='HTML'
                 )
                 return True
                 
-            return success
-            
         except Exception as e:
-            logger.error(f'Общая ошибка: {e}')
-            # Всегда отправляем ссылку как запасной вариант
-            try:
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=f"🎧 <b>Слушайте онлайн:</b>\n{track.get('webpage_url', '')}",
-                    parse_mode='HTML'
-                )
-                return True
-            except:
-                return False
+            logger.error(f'Общая ошибка скачивания: {e}')
+            return False
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /start"""
@@ -252,9 +233,8 @@ class StableMusicBot:
             # Сохраняем результаты
             user_data[str(user.id)]['search_results'] = results
             user_data[str(user.id)]['search_query'] = text
-            save_data()
 
-            # Показываем первые 5 результатов
+            # Показываем результаты
             keyboard = []
             for idx, track in enumerate(results[:5]):
                 title = track.get('title', 'Неизвестный трек')
@@ -266,7 +246,7 @@ class StableMusicBot:
             keyboard.append([InlineKeyboardButton('🔍 Новый поиск', callback_data='new_search')])
             
             await status_msg.edit_text(
-                f"🔍 Найдено {len(results)} треков по запросу: <b>{text}</b>\n\nВыберите трек:",
+                f"🔍 Найдено {len(results)} треков по запросу: <b>{text}</b>\n\nВыберите трек для скачивания:",
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode='HTML'
             )
@@ -297,11 +277,7 @@ class StableMusicBot:
                 results = await self.search_soundcloud(random_search)
                 if results:
                     random_track = random.choice(results)
-                    success = await self.download_track(update, context, random_track)
-                    if success:
-                        # Сохраняем в историю
-                        user_data[str(user.id)]['download_history'].append(random_track)
-                        save_data()
+                    await self.download_track(update, context, random_track)
                 return
                 
             elif data.startswith('download:'):
@@ -310,22 +286,7 @@ class StableMusicBot:
                 
                 if 0 <= idx < len(results):
                     track = results[idx]
-                    success = await self.download_track(update, context, track)
-                    
-                    if success:
-                        # Сохраняем в историю
-                        user_data[str(user.id)]['download_history'].append(track)
-                        save_data()
-                        
-                        # Показываем кнопки для дальнейших действий
-                        keyboard = [
-                            [InlineKeyboardButton('🔍 Новый поиск', callback_data='new_search')],
-                            [InlineKeyboardButton('🎲 Случайный трек', callback_data='random_track')],
-                        ]
-                        await query.message.reply_text(
-                            "✅ Готово! Что дальше?",
-                            reply_markup=InlineKeyboardMarkup(keyboard)
-                        )
+                    await self.download_track(update, context, track)
                 return
                 
         except Exception as e:
@@ -346,7 +307,7 @@ class StableMusicBot:
         app.run_polling()
 
 # Глобальная переменная для server.py
-bot = StableMusicBot()
+bot = MusicBot()
 
 if __name__ == '__main__':
     bot.run()
